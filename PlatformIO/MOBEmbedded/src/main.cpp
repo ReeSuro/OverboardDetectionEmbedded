@@ -1,296 +1,182 @@
-//Main.cpp 
+//Main.cpp
 //
 // Author - Ree Surowiez
 // Date - 09/07/21
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
 
-#define LATCH_PIN D5
-#define BUTTON_PIN 
-#define RED_LED 
-#define YELLOW_LED
-#define GREEN_LED
+#include "Debug.hpp"
+#include "MPU6050.hpp"
+#include "Settings.hpp"
+#include "NetworkManager.hpp"
 
-#ifdef DEBUG
-#define DEBUG_LOGLN(a) Serial.println(a);
-#define DEBUG_LOG(a) Serial.print(a);
-#else
-#define DEBUG_LOGLN(a) 
-#define DEBUG_LOG(a) 
-#endif
+DeviceStates deviceState = DeviceStates::POWEROFF;
+MPU6050 accelerometer;
+NetworkManager network;
+WaterSensor ws;
 
-DeviceStates deviceState = DeviceStates.POWEROFF;
-WiFiClient socketClient;
-const char* ssid = "NA";
-const char* password = "116028E44B";
-const char* host = "192.168.1.100";
-const uint16_t port = 11000;
-const uint16_t networkTimeout = 10; //Timeout for connection to the network in seconds 
-const uint16_t socketTimeout = 10; // Timeour for conncetion to the socket in seconds 
-
-
-void setup() {
-  
-    //1. Latch Power on
-    pinMode(LATCH_PIN, OUTPUT);
-    digitalWrite(LATCH_PIN, HIGH);
-    DEBUG_LOG("Power Latch successful");
-    
-    //2. Start Debug hardware checks
-    #ifdef DEBUG
-        Serial.begin(9600);
-        debugChecks();
-    #endif
-    
-    //3. Set the device state to connect to the socket
-    deviceState = deviceStates.CONNECTING;
-}
-
-void loop() {
-
-    switch(deviceState)
-    {
-        case POWEROFF:
-            //1. Clean any resources and memory before shutdown
-            #ifdef DEBUG 
-                Serial.close();
-            #endif
-            //2. Disconnect the latch by pulling pin D5 low
-            digitalWrite(LATCH_PIN, LOW);
-        break;
-        case CONNECTING:
-
-            //1.Attempt connection to the network
-            bool networkConnectStatus = deviceNetworkConnect(networkTimeout);
-            if(networkConnectStatus == 0)
-            {
-                //if network connection failed then go to the safe disconnect state
-                deviceState = DeviceStates.SAFE_DISCONNECT;
-                break;
-            }
-            else
-            {
-                //if the network connection is successful then attempt connection to a socket
-                bool socketConnectStatus = deviceSocketConnect();
-                if (socketConnectStatus == 1) 
-                {
-                    //if the connection to the socket is successful then enter operating mode 
-                    deviceState = DeviceStates.OPERATING;
-                    break;
-                }
-                else
-                {
-                    deviceState = DeviceStates.SAFE_DISCONNECT; 
-                    break;
-                }
-            }
-        break;
-        case OPERATING:
-
-            //1. ping the socket
-                //TODO: potentially use interrupts on a timer 
-            //2. Sleep while still operating
-                //TODO: Implement sleep feature
-            //3. Read accelerometer 
-
-            //4. Read button
-                //TODO: implement circuit for reading the push button
-            
-            //5. Read battery level 
-                //TODO: implement battery reading circuit
-
-        break;
-        case FALLING:
-        break;
-        case EMERGENCY:
-        break;
-        case SAFE_DISCONNECT:
-        break;
-        case UNSAFE_DISCONNECT:
-        break;
-    }
-}
-
-bool deviceSocketConnect()
+void debugSetup(MPU6050 &accelerometer) 
 {
-  //Create wifi client and attempt connection to the specified socket
-  client.setNoDelay(true);
-  if (!client.connect(host, port)) {
-    DEBUGLOGLN("Connection to server failed");
-    //set program state to disconnecting
-    return 0;
-  }
-  else
-  {
-    //if connected set program state to connected
-    DEBUGLOGLN("Connection to server successful");
-    return 1;
-  }
-}
+    bool debugSuccessful = true;
 
+    Serial.println("--------------------- Beginning Debug Checks ----------------------");
+    Serial.println("Setting up MPU6050 - ");
 
-bool deviceNetworkConnect(uint8_t networkTimeout)
-{
-  //attempt connection to network
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
-  //diag messages
-  DEBUG_LOGLN(" ");
-  DEBUG_LOGLN("Connecting to network");
-
-  //Wait for network connection
-  for (uint8_t i = 0; i < 10; i++)
-  {
-    if (WiFi.status() != WL_CONNECTED)
+    //Initialise and check the accelerometer
+    Serial.print("Establishing communication: "); 
+    bool acc_error = accelerometer.exists();
+    Serial.println((acc_error ? "SUCCESS" : "FAILED"));
+    //if communication is possible then continue setup
+    if(acc_error)
     {
-      //If not connected then print
-      Serial.print(".");
+        accelerometer.begin();//Set up interrupts
+        uint8_t[] acc_regs = accelerometer.getSettings();
+        for(uint_t i = 0, i < 8, i++) 
+        {
+            Serial.println("POWER REGISTER 1  :" + acc_regs[0]);
+            Serial.println("SIGNAL PATH RESET :" + acc_regs[1]);
+            Serial.println("INT PIN REGISTER  :" + acc_regs[2]);
+            Serial.println("HPF CONFIG REG    :" + acc_regs[3]);
+            Serial.println("THRESHOLD REGISTER:" + acc_regs[4]);
+            Serial.println("COUNTER REGISTER  :" + acc_regs[5]);
+            Serial.println("DECREMENT REGISTER:" + acc_regs[6]);
+            Serial.println("INT ENABLE REG    :" + acc_regs[7]);
+
+        }
+
+
     }
     else
     {
-      //If connected then break out of loop
+        debugSuccessful = false;
+    }
+}
+
+
+
+void setup()
+{
+
+  //1. Latch Power on
+  pinMode(LATCH_PIN, OUTPUT);
+  digitalWrite(LATCH_PIN, HIGH);
+  DEBUG_LOGLN("Power Latch successful");
+
+//2. Start Debug hardware checks
+#ifdef DEBUG
+  Serial.begin(9600);
+  debugChecks();
+#endif
+
+  //initialize accelerometer and set up interrupt
+  accelerometer.begin();
+  attachInterruptToDigitalPin(digitalPinToInterrupt(), onFalling, FALLING);
+
+  //3. Set the device state to connect to the socket
+  deviceState = DeviceStates::CONNECTING;
+}
+
+void loop()
+{
+
+  switch (deviceState)
+  {
+  case POWEROFF:
+//1. Clean any resources and memory before shutdown
+#ifdef DEBUG
+    Serial.close();
+#endif
+    //2. Disconnect the latch by pulling pin D5 low
+    digitalWrite(LATCH_PIN, LOW);
+    break;
+  case CONNECTING:
+
+    //1.Attempt connection to the network
+    bool networkConnectStatus = network.networkConnect(networkTimeout, ssid, password);
+    if (networkConnectStatus == 0)
+    {
+      //if network connection failed then go to the safe disconnect state
+      deviceState = DeviceStates::SAFE_DISCONNECT;
+      DEBUG_LOGLN("Network connection failed")
       break;
     }
-    //Delay for 1/10 of timeout
-    delay(networkTimeout * 100);
-  }
-  //Check network connection status
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    //if not connected
-    DEBUGLOGLN("Network Connection Failed");
-    //return 0 if failed
-    return 0;
-  }
-  else
-  {
-    Serial.println("\nWiFi connected");
-    Serial.println("IP address: ");
-    Serial.print(WiFi.localIP());
-    return 1; 
-  }
-}
-
-
-
-
-enum DeviceStates : int8_t
-{
-    POWEROFF, 
-    CONNECTING, 
-    OPERATING,
-    FALLING, 
-    EMERGENCY, 
-    SAFE_DISCONNECT, 
-    UNSAFE_DISCONNECT;
-}
-
-void deviceMonitor()
-{
-  //Set hardware
-  setLED(false, false, true);
-
-  //Check if client is created
-  if (client == NULL)
-  {
-    DEBUGLOGLN("Error: Client Object doesn't exist");
-    //Disconnect
-    programState = disconnectingState;
-    return;
-  }
-  else
-  {
-    while (true) {
-      //If the client object exists
-      if (client.connected())
+    else
+    {
+      //if the network connection is successful then attempt connection to a socket
+      bool socketConnectStatus = network.socketConnect();
+      if (socketConnectStatus == 1)
       {
-        setLED(false, true, true);
-        DEBUGLOGLN("Sending PING");
-        client.println("A");
-        setLED(false, false, true);
+        //if the connection to the socket is successful then enter operating mode
+        deviceState = DeviceStates::OPERATING;
+        break;
       }
       else
       {
-        DEBUGLOGLN("Error Client Disconnected");
-        //Disconnect
-        programState = disconnectingState;
-        return;
-      }
-      for (int i = 0; i < 5; i++)
-      {
-        delay(1000);
-        buttonState = digitalRead(POWERBUTTON);
-        if (buttonState == HIGH)
-        {
-          programState = disconnectingState;
-          return;
-        }
-      }
-    }
-  }
-}
-
-void deviceDisconnect()
-{
-  //set hardware
-  setLED(false, false, false);
-  //if socket is connected then send diconnect request to the server
-  if (client.connected())
-  {
-    DEBUGLOGLN("Sending Disconnect Request");
-    client.println("D");
-    //Wait for disconnect acknowledge from server
-    unsigned long timeout = millis();
-    while (client.available() == 0) {
-      if (millis() - timeout > 5000) {
-        DEBUGLOGLN("Timeout while waiting for disconnect confirmation");
-        client.stop();
+        deviceState = DeviceStates::SAFE_DISCONNECT;
         break;
       }
     }
+    break;
+  case OPERATING:
 
-    if (client.connected())
-    {
-      while (client.available())
-      {
-        char ch = static_cast<char>(client.read());
-        if (ch == 'D')
-        {
-          DEBUGLOGLN("Disconnect successful");
-          break;
-        }
-        else
-        {
-          DEBUGLOGLN("Unknown disconnect");
-          break;
-        }
-      }
-    }
+    //1. ping the socket
+    network.sendPing();
+    //2. Sleep while still operating
+    delay(5000);
+
+    //3. Read button
+    //TODO: implement circuit for reading the push button
+
+    //4. Read battery level
+    readBattery();
+
+    break;
+
+  case EMERGENCY:
+
+    break;
+  case SAFE_DISCONNECT:
+    break;
+  case UNSAFE_DISCONNECT:
+    break;
   }
-    //Dispose of client
-      if (client.connected()) {
-        DEBUGLOGLN("Disconnecting from server");
-        client.stop();
-      }
-    //Disconnect from access point
-    if (WiFi.status() == WL_CONNECTED) {
-      DEBUGLOGLN("Disconnecting from network");
-      WiFi.disconnect();
-    }
+}
 
-    //Wait for 3 seconds
-    for (int i = 1; i < 4; i++)
-    {
-      setLED(false, true, false);
-     delay(500);
-      setLED(false, false, false);
-      delay(500);
-    }
-    //Set to disconnected state
-    programState = disconnectedState;
-    return;
+void readBattery()
+{
+
 
 }
 
 
+
+void onFalling()
+{
+  //Triggered when the device is falling
+  //1. Wait until the device is not falling, TODO: ADD TIMER to measure fall time.
+  while (accelerometer.isFalling());
+
+  //2.  Read water sensor for a set period of time
+  for (uint8_t i = 0; i < 10; i++)
+  {
+    if (isWater())
+    {
+      //if water is detected then enter emergency mode
+      deviceState = DeviceStates::EMERGENCY;
+    }
+    else
+    {
+      delay(WATER_SENSE_PERIOD / 10);
+    }
+  }
+}
+
+enum DeviceStates : int8_t
+{
+  POWEROFF,
+  CONNECTING,
+  OPERATING,
+  FREEFALL,
+  EMERGENCY,
+  SAFE_DISCONNECT,
+  UNSAFE_DISCONNECT
+};
