@@ -30,8 +30,8 @@ bool NetworkManager::networkConnect(uint8_t networkTimeout, const char *ssid, co
     WiFi.begin(ssid, password);
 
     //diag messages
-    DEBUG_LOGLN(" ");
-    DEBUG_LOGLN("Connecting to network");
+    DEBUG_LOGLN(" ")
+    DEBUG_LOGLN("Connecting to network")
 
     //Wait for network connection
     for (uint8_t i = 0; i < 10; i++)
@@ -71,13 +71,13 @@ bool NetworkManager::sendPing(const char *message)
     //Check if client is created
     if (client == NULL || !client.connected())
     {
-        DEBUGLOGLN("Error: Client Object doesn't exist");
+        DEBUG_LOGLN("Error: Client Object doesn't exist");
         return 0;
     }
     else
     {
         //If the client object exists
-        DEBUGLOGLN("Sending PING");
+        DEBUG_LOGLN("Sending PING");
         client.println(message);
         return 1;
     }
