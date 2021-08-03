@@ -13,112 +13,129 @@
 DeviceStates deviceState = DeviceStates::POWEROFF;
 MPU6050 accelerometer;
 NetworkManager network;
-//WaterSensor ws;
-bool initDevice(MPU6050 accelerometer);
+WaterSensor ws;
+BatteryManager battery;
+LEDManager leds;
 
-void debugNetworkConnect()
+
+
+void setup()
 {
-  //1.Attempt connection to the network
-  bool networkConnectStatus = network.networkConnect(networkTimeout, ssid, password);
-  if (networkConnectStatus == 0)
-  {
-    //if network connection failed then go to the safe disconnect state
-    deviceState = DeviceStates::SAFE_DISCONNECT;
-    DEBUG_LOGLN("Network connection failed")
-  }
-  else
-  {
-    //if the network connection is successful then attempt connection to a socket
-    bool socketConnectStatus = network.socketConnect(host, port);
-  }
-}
-  void setup()
-  {
-    //Latch Power on
-    pinMode(LATCH_PIN, OUTPUT);
-    digitalWrite(LATCH_PIN, HIGH);
-    DEBUG_LOGLN("Power Latch successful");
-    deviceState = DeviceStates::INIT;
+  //Latch Power on
+  pinMode(LATCH_PIN, OUTPUT);
+  digitalWrite(LATCH_PIN, HIGH);
+  DEBUG_LOGLN("Power Latch successful");
+  deviceState = DeviceStates::INIT;
 //2. Start serial
 #ifdef DEBUG
-    Serial.begin(9600);
+  Serial.begin(9600);
 #endif
-  }
+}
 
-  void loop()
+void loop()
+{
+
+  switch (deviceState)
   {
-
-    switch (deviceState)
-    {
-    case POWEROFF:
-    {
+  case POWEROFF:
+  {
 
 //1. Clean any resources and memory before shutdown
 #ifdef DEBUG
-      Serial.flush();
-      Serial.end();
+    Serial.flush();
+    Serial.end();
 #endif
-      //2. blink lights
-      SetLEDS(true, false, false);
-      delay(1000);
-      SetLEDS(false, false, false);
-      delay(1000);
-      SetLEDS(true, false, false);
-      delay(1000);
-      SetLEDS(false, false, false);
-      //3. Disconnect the latch by pulling pin D5 low
-      digitalWrite(LATCH_PIN, LOW);
-      break;
-    }
-    case INIT:
-    {
-      //Initialise sensors
-      bool result = initDevice(accelerometer);
-      if (result)
-        deviceState = DeviceStates::POWEROFF;
-      else
-        deviceState = DeviceStates::POWEROFF;
-    }
-    case CONNECTING:
-    {
-    break;
-    }
-  case OPERATING:
-  {
-    //1. ping the socket
-    network.sendPing("A");
-    //2. Sleep while still operating
-    delay(pingTime);
-
-    //3. Read button
-    //TODO: implement circuit for reading the push button
-
-    //4. Read battery level
-    //readBattery();
-
+    //2. blink lights
+    SetLEDS(true, false, false);
+    delay(1000);
+    SetLEDS(false, false, false);
+    delay(1000);
+    SetLEDS(true, false, false);
+    delay(1000);
+    SetLEDS(false, false, false);
+    //3. Disconnect the latch by pulling pin D5 low
+    digitalWrite(LATCH_PIN, LOW);
     break;
   }
-  case FREEFALL:
+  case INIT:
   {
+    //Initialise sensors
+    bool result = initDevice(accelerometer);
+    if (result)
+      deviceState = DeviceStates::POWEROFF;
+    else
+      deviceState = DeviceStates::POWEROFF;
+  }
+  case CONNECTING:
+  {
+    //1. Attempt connection to the network
+    bool networkConnectSuccess = network.networkConnect(networkTimeout, ssid, password);
+    if (!networkConnectSuccess)
+    {
+      //If the network connection failed then go to safe disconnect
+      deviceState = DeviceStates::SAFE_DISCONNECT;
+      break;
+    }
+    else
+    {
+      //If the connection was successful then attempt connection to the socket
+      bool socketConnectStatus = network.socketConnect(socketTimeout,host, port);
+      if (!socketConnectStatus)
+      {
+        deviceState = DeviceStates::SAFE_DISCONNECT;
+      }
+      else
+      {
+        //if socket connection is successful then move to the operating state
+        deviceState = DeviceStates::OPERATING;
+      }
+    }
+    break;
+  }
+  case OPERATING:
+  {
+    //1. Read battery level and determine if the required battery level is above the required voltage
+    bool batteryState = battery.isVoltageSafe();
+    if (!batteryState)
+    {
+      //if the battery voltage has gone below a selected threshold then turn off
+      deviceState = DeviceStates::SAFE_DISCONNECT;
+      break;
+    }
+
+    //2. ping the socket
+    String voltage = battery.getVoltageAsString();
+    String message = voltage + " " + pingMessage;
+    network.sendPing(message);
+    //2. Sleep while still operating
+    delay(pingTime);
     break;
   }
   case EMERGENCY:
   {
+    //1. Start the strobe led
+    leds.strobe();
     break;
   }
   case SAFE_DISCONNECT:
   {
+    //1. Disconnect from the socket with confirmation from the server
+
+    //2. Disconnect from the network
+
+    //3. Dispose of network objects
+
+    //4. Dispose of hardware objects
     break;
   }
   case UNSAFE_DISCONNECT:
   {
+    //1. Dispose of network objects
+
+    //2, Dispose of hardware objects
     break;
   }
   }
-}
-
-void readBattery()
-{
 }
 
 void SetLEDS(bool red, bool yellow, bool green)
@@ -150,7 +167,32 @@ IRAM_ATTR void onFalling()
     }
   }
 }
-IRAM_ATTR void onButton(){}
+IRAM_ATTR void onButton()
+{
+
+  //1. Time button press
+  //Start timer
+  unsigned long currentTime = millis();
+  unsigned long nextTime = currentTime + BUTTON_PUSH_PERIOD;
+  //Wait for the button to be release
+  while (!digitalRead(BUTTON_INT_PIN))
+    ;
+  //end timer
+  currentTime = millis();
+  if (currentTime > nextTime)
+  {
+    //If the timer is less than X seconds then return else determine the state
+
+    if (deviceState == DeviceStates::EMERGENCY)
+    {
+      deviceState = DeviceStates::UNSAFE_DISCONNECT;
+    }
+    else if (deviceState == DeviceStates::OPERATING)
+    {
+      deviceState = DeviceStates::SAFE_DISCONNECT;
+    }
+  }
+}
 bool initDevice(MPU6050 accelerometer)
 {
 
@@ -220,7 +262,9 @@ bool initDevice(MPU6050 accelerometer)
   SetLEDS(true, true, true);
   delay(2000);
   SetLEDS(true, false, false);
+  pinMode(BUTTON_INT_PIN, INPUT);
 #else
+  pinMode(BUTTON_INT_PIN, INPUT);
   pinMode(RED_LED, OUTPUT);
   pinMode(YELLOW_LED, OUTPUT);
   pinMode(GREEN_LED, OUTPUT);
@@ -262,13 +306,15 @@ bool initDevice(MPU6050 accelerometer)
   attachInterrupt(digitalPinToInterrupt(BUTTON_INT_PIN), onButton, FALLING);
 
 #ifdef DEBUG
-  if (debugSuccessful){
+  if (debugSuccessful)
+  {
     Serial.println("Debug checks successful");
-  return 1;
+    return 1;
   }
-  else {
+  else
+  {
     Serial.println("Debug checks failed");
-  return 0;
+    return 0;
   }
 #else
   pinMode(WATER_SENSE_PIN, INPUT);
