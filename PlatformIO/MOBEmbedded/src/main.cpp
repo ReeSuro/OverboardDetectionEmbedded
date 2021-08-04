@@ -4,18 +4,71 @@
 // Date - 09/07/21
 #include <Arduino.h>
 #define DEBUG
+#define UNIT_TESTS
 #include "main.hpp"
 #include "Debug.hpp"
 #include "MPU6050.hpp"
 #include "Settings.hpp"
 #include "NetworkManager.hpp"
+#include "LEDManager.hpp"
+
+#ifdef UNIT_TESTS
+
+  void setup()
+  {
+      Serial.begin(9600);
+      //Test LEDManager
+      LEDManager leds(RED_LED, GREEN_LED, STROBE_LED);
+      //Test the constructor
+      if(leds.getRedPin() == RED_LED)
+        Serial.println("RED LED PIN CORRECT");
+      else
+        Serial.println("RED LED PIN INCORRECT");
+
+      if(leds.getGreenPin() == GREEN_LED)
+        Serial.println("GREEN LED PIN CORRECT");
+      else
+        Serial.println("GREEN LED PIN INCORRECT");
+
+      if(leds.getStrobePin() == STROBE_LED)
+        Serial.println("STROBE LED PIN CORRECT");
+      else
+        Serial.println("STROBE LED PIN INCORRECT");  
+
+      if(digitalRead(RED_LED) == 0)
+        Serial.println("RED LED PIN SET CORRECT");
+      else
+        Serial.println("RED LED PIN SET INCORRECT");
+
+      if(digitalRead(GREEN_LED) == 0)
+        Serial.println("GREEN LED PIN SET CORRECT");
+      else
+        Serial.println("GREEN LED PIN SET INCORRECT");
+
+      if(digitalRead(STROBE_LED) == 0)
+        Serial.println("STROBE LED PIN SET CORRECT");
+      else
+        Serial.println("STROBE LED PIN SET INCORRECT");
+
+  }
+
+  void loop()
+  {
+      delay(10000);
+  }
+
+
+
+#else
+
 
 DeviceStates deviceState = DeviceStates::POWEROFF;
 MPU6050 accelerometer;
 NetworkManager network;
-WaterSensor ws;
-BatteryManager battery;
-LEDManager leds;
+//WaterSensor ws;
+//BatteryManager battery;
+LEDManager leds(RED_LED, GREEN_LED, STROBE_LED);
+
 
 
 
@@ -138,13 +191,7 @@ void loop()
   }
 }
 
-void SetLEDS(bool red, bool yellow, bool green)
-{
-  digitalWrite(RED_LED, red);
-  digitalWrite(YELLOW_LED, yellow);
-  digitalWrite(GREEN_LED, green);
-}
-
+#pragma region ISRs
 IRAM_ATTR void onFalling()
 {
   //Triggered when the device is falling
@@ -193,6 +240,11 @@ IRAM_ATTR void onButton()
     }
   }
 }
+#pragma endregion
+
+
+
+
 bool initDevice(MPU6050 accelerometer)
 {
 
@@ -243,17 +295,12 @@ bool initDevice(MPU6050 accelerometer)
 #ifdef DEBUG
   Serial.println("Testing LEDS - ");
   pinMode(RED_LED, OUTPUT);
-  pinMode(YELLOW_LED, OUTPUT);
   pinMode(GREEN_LED, OUTPUT);
   SetLEDS(false, false, false);
   Serial.println("RED LED ON: NOW ");
   digitalWrite(RED_LED, HIGH);
   delay(2000);
   digitalWrite(RED_LED, LOW);
-  Serial.println("YELLOW LED ON: NOW ");
-  digitalWrite(YELLOW_LED, HIGH);
-  delay(2000);
-  digitalWrite(YELLOW_LED, LOW);
   Serial.println("GREEN LED ON: NOW ");
   digitalWrite(GREEN_LED, HIGH);
   delay(2000);
@@ -266,7 +313,6 @@ bool initDevice(MPU6050 accelerometer)
 #else
   pinMode(BUTTON_INT_PIN, INPUT);
   pinMode(RED_LED, OUTPUT);
-  pinMode(YELLOW_LED, OUTPUT);
   pinMode(GREEN_LED, OUTPUT);
   SetLEDS(true, false, false);
 #endif
@@ -321,3 +367,5 @@ bool initDevice(MPU6050 accelerometer)
   return 1;
 #endif
 }
+
+#endif
