@@ -4,18 +4,14 @@
 //Date: 10/07/2021
 
 #include "MPU6050.hpp"
-#include "Debug.hpp"
 
-MPU6050::MPU6050()
+MPU6050::MPU6050(const uint8_t &thres, const uint8_t &count) : threshold(thres), counter(count)
 {
     //Start I2C object
     Wire.begin();
-#ifdef DEBUG
-    Serial.begin(9600);
-#endif
 }
 
-void MPU6050::begin(const uint8_t &threshold, const uint8_t &counter)
+void MPU6050::begin()
 {
     //configure free fall interrupt
     writeRegister(ACC_ADDR, POWER_REG_1, 0b00000000);       //Wake device
@@ -49,16 +45,15 @@ bool MPU6050::isFalling()
 {
     uint8_t val = readRegister(ACC_ADDR, INT_CHECK_REG);
     val &= 0b10000000;
-    if(val == 0b10000000)
+    if (val == 0b10000000)
         return true;
     else
-        return false; 
+        return false;
 }
 
-
-uint8_t* MPU6050::getSettings()
+uint8_t *MPU6050::getSettings()
 {
-    uint8_t* registers = (uint8_t*)malloc(sizeof(uint8_t)*8);
+    uint8_t *registers = (uint8_t *)malloc(sizeof(uint8_t) * 8);
     registers[0] = readRegister(ACC_ADDR, POWER_REG_1);       //Wake device
     registers[1] = readRegister(ACC_ADDR, SIGNAL_PATH_RESET); //Reset all analogue and digital signal paths
     registers[2] = readRegister(ACC_ADDR, INT_PIN_CFG);       //Interrupt active low, push-pull, high until read, clear on read.
@@ -87,7 +82,7 @@ uint8_t MPU6050::readRegister(uint8_t addr, uint8_t reg)
     Wire.write(reg);
     Wire.endTransmission(false);
     Wire.beginTransmission(addr);
-    Wire.requestFrom(addr, 1, true);
+    Wire.requestFrom(addr, 1, (bool)true);
     uint8_t data = Wire.read();
     Wire.endTransmission(true);
     return data;

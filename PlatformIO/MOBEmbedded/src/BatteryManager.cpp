@@ -3,19 +3,20 @@
 //  Author: Ree Surowiez
 //  Date: 05/08/2021
 
-#include "Arduino.h"
 #include "BatteryManager.hpp"
 
-BatteryManager::BatteryManager(const uint8_t sensePin, const int empty, const int low, const int mid) : sensPin(sensePin),
-                                                                                                        emptyADCVal(empty),
-                                                                                                        lowADCVal(low),
-                                                                                                        midADCVal(mid)
+BatteryManager::BatteryManager(const uint8_t sensPin, const int empty, const int low, const int mid) : sensePin(sensPin),
+                                                                                                       emptyADCVal(empty),
+                                                                                                       lowADCVal(low),
+                                                                                                       midADCVal(mid)
 {
+    //Initialise the pin
+    pinMode(sensePin, INPUT);
 }
 
 bool BatteryManager::isVoltageSafe()
 {
-    if (analogRead(sensPin) < emptyADCVal)
+    if (analogRead(sensePin) < emptyADCVal)
         return false;
     else
         return true;
@@ -29,12 +30,12 @@ String BatteryManager::getVoltageAsString()
 
 const uint8_t BatteryManager::getSensorPin()
 {
-    return sensPin;
+    return sensePin;
 }
 
 int BatteryManager::readVoltage()
 {
-    return analogRead(sensPin);
+    return analogRead(sensePin);
 }
 
 char BatteryManager::parseVoltage(int &rawADC)

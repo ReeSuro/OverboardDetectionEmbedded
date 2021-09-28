@@ -33,18 +33,18 @@ void LEDManager::strobe(const uint16_t &strobeTime)
 void LEDManager::toggleRed()
 {
     //toggle the red led
-    if(digitalRead(*redPin))
+    if (digitalRead(*redPin))
         digitalWrite(*redPin, LOW);
-    else    
+    else
         digitalWrite(*redPin, HIGH);
 }
 
 void LEDManager::toggleGreen()
 {
     //toggle the red led
-    if(digitalRead(*greenPin))
+    if (digitalRead(*greenPin))
         digitalWrite(*greenPin, LOW);
-    else    
+    else
         digitalWrite(*greenPin, HIGH);
 }
 
@@ -55,7 +55,7 @@ void LEDManager::redOn()
 
 void LEDManager::greenOn()
 {
-    digitalWrite(*redPin, HIGH);
+    digitalWrite(*greenPin, HIGH);
 }
 
 void LEDManager::redOff()
@@ -65,14 +65,30 @@ void LEDManager::redOff()
 
 void LEDManager::greenOff()
 {
+    digitalWrite(*greenPin, LOW);
+}
+
+void LEDManager::blinkGreen(const uint16_t &time)
+{
+    digitalWrite(*greenPin, HIGH);
+    delay(time);
+    digitalWrite(*greenPin, LOW);
+    delay(time);
+}
+
+void LEDManager::blinkRed(const uint16_t &time)
+{
+    digitalWrite(*redPin, HIGH);
+    delay(time);
     digitalWrite(*redPin, LOW);
+    delay(time);
 }
 
 const unsigned char LEDManager::getRedPin()
 {
     return *redPin;
 }
-        
+
 const unsigned char LEDManager::getGreenPin()
 {
     return *greenPin;
