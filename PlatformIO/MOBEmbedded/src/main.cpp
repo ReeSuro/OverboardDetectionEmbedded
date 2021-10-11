@@ -38,6 +38,7 @@ void setup()
 {
     Serial.begin(9600);
     Serial.println("Serial working");
+
     attachInterrupt(digitalPinToInterrupt(ACC_INT_PIN), onFalling, FALLING);
     attachInterrupt(digitalPinToInterrupt(BUTTON_INT_PIN), onButton, FALLING);
     device.start();

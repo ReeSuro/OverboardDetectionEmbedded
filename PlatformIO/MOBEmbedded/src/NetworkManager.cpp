@@ -30,6 +30,7 @@ bool NetworkManager::safeDisconnect()
         while(!client.available());
 
         //Read the char
+        client.setTimeout(2000);
         char response = client.read();
        if(response == 'D')
        {

@@ -18,7 +18,8 @@ enum DeviceStates : int8_t
     OPERATING,
     EMERGENCY,
     SAFE_DISCONNECT,
-    UNSAFE_DISCONNECT
+    UNSAFE_DISCONNECT,
+    FALLING_ANALYSIS
 };
 
 class MOBDevice

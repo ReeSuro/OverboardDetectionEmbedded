@@ -50,6 +50,7 @@ void MOBDevice::start()
         }
         case CONNECTING:
         {
+            led->greenOn();
             //1. Attempt connection to the network
             Serial.println("Attempting network connection");
             bool networkConnectSuccess = nm->networkConnect();
@@ -57,7 +58,7 @@ void MOBDevice::start()
             {
                 //If the network connection failed then go to safe disconnect
                 Serial.println("Network connection failed");
-                deviceState = DeviceStates::SAFE_DISCONNECT;
+                deviceState = DeviceStates::UNSAFE_DISCONNECT;
                 break;
             }
             else
@@ -68,7 +69,7 @@ void MOBDevice::start()
                 if (!socketConnectStatus)
                 {
                     Serial.println("Socket connection Failed");
-                    deviceState = DeviceStates::SAFE_DISCONNECT;
+                    deviceState = DeviceStates::UNSAFE_DISCONNECT;
                 }
                 else
                 {
@@ -77,19 +78,21 @@ void MOBDevice::start()
                     deviceState = DeviceStates::OPERATING;
                 }
             }
+            led->greenOff();
             break;
         }
         case OPERATING:
         {
             //1. Read battery level and determine if the required battery level is above the required voltage
             led->greenOn();
-            //bool batteryState = bat->isVoltageSafe();
+            bool batteryState = bat->isVoltageSafe();
             //if (!batteryState)
-            // {
+            //{
             //if the battery voltage has gone below a selected threshold then turn off
-            //   deviceState = DeviceStates::SAFE_DISCONNECT;
-            //     break;
-            // }
+            //    Serial.println("Battery voltage too low, disconnecting");
+            //    deviceState = DeviceStates::SAFE_DISCONNECT;
+            //    break;
+            //}
 
             //2. ping the socket
             String voltage = bat->getVoltageAsString();
@@ -98,20 +101,54 @@ void MOBDevice::start()
             char cMessage[message.length() + 1];
             strcpy(cMessage, message.c_str());
             int sum = 0;
-            for (int i = 0; i < message.length(); i++)
+            for (int i = 0; i < (int)message.length(); i++)
             {
                 sum += cMessage[i];
             }
             message += "#" + String(sum) + "<EOF>";
+            if (deviceState == DeviceStates::FALLING_ANALYSIS)
+                break;
             nm->sendPing(message.c_str());
             Serial.println(message);
             led->greenOff();
             //3. Sleep while still operating : TODO IMPLEMENT SLEEP
+            if (deviceState == DeviceStates::FALLING_ANALYSIS)
+                break;
             delay(nm->settings.pingTime);
+            break;
+        }
+        case FALLING_ANALYSIS:
+        {
+            //Read water sensor for a set period of time
+            bool success = false;
+            for (uint8_t i = 0; i < 10; i++)
+            {
+                Serial.println("Searching for water");
+                if (ws->isWet())
+                {
+                    //if water is detected then enter emergency mode
+                    success = true;
+                    break;
+                }
+                else
+                {
+                    delay(waterSensePeriod / 10);
+                }
+            }
+            if (success)
+            {
+                deviceState = DeviceStates::EMERGENCY;
+            }
+            else
+            {
+                deviceState = DeviceStates::OPERATING;
+            }
             break;
         }
         case EMERGENCY:
         {
+            led->greenOn();
+            led->redOn();
             //Start the strobe LED
             led->strobe(1000);
             break;
@@ -119,7 +156,10 @@ void MOBDevice::start()
         case SAFE_DISCONNECT:
         {
             //Disconnect from the server and dispose of resources
-            while (true)
+            led->greenOff();
+            led->redOn();
+            bool success = false;
+            for (int i = 0; i < 5; i++)
             {
                 Serial.println("Attempting Disconnect");
                 bool result = nm->safeDisconnect();
@@ -128,20 +168,33 @@ void MOBDevice::start()
                     Serial.println("Disconnect Acknowledged");
                     nm->dispose();
                     deviceState = DeviceStates::POWEROFF;
+                    success = true;
                     Serial.println("Disconnect Successful");
+                    break;
                 }
                 else
                 {
                     delay(1000);
                 }
             }
-            break;
+            if (!success) //If not successful then return to the operating state
+            {
+                deviceState = DeviceStates::OPERATING;
+            }
+            led->redOff();
         }
         case UNSAFE_DISCONNECT:
         {
+            led->greenOff();
+            led->redOn();
             //Dispose of resources
+            Serial.println("Disposing of resources");
             nm->dispose();
             deviceState = DeviceStates::POWEROFF;
+            while (!digitalRead(buttonPin))
+                ; //Make sure off button still isnt held down
+            led->greenOff();
+            led->redOff();
             break;
         }
         }
@@ -153,54 +206,57 @@ void MOBDevice::falling()
     //Triggered when the device is falling
     //1. Wait until the device is not falling
     //Start timer
+    Serial.println("Falling");
+      if (deviceState == DeviceStates::EMERGENCY)
+    {
+        return;
+    }
     unsigned long currentTime = millis();
     unsigned long nextTime = currentTime + fallThresholdTime;
-    while (acc->isFalling())
+    //while (acc->isFalling()); TODO:REMOVE COMMENT ON RELEASE
+    while (!digitalRead(D6))
         ;
     //end timer
     currentTime = millis();
     if (currentTime > nextTime)
     {
-        //2.  Read water sensor for a set period of time
-        for (uint8_t i = 0; i < 10; i++)
-        {
-            if (ws->isWet())
-            {
-                //if water is detected then enter emergency mode
-                deviceState = DeviceStates::EMERGENCY;
-                break;
-            }
-            else
-            {
-                delay(waterSensePeriod / 10);
-            }
-        }
+        deviceState = DeviceStates::FALLING_ANALYSIS;
     }
 }
 
 void MOBDevice::buttonPress()
 {
     Serial.println("Button Pressed");
+    //Check if button pressed while connecting
+    if (deviceState == DeviceStates::CONNECTING)
+    {
+        deviceState = DeviceStates::POWEROFF;
+        while (!digitalRead(buttonPin))
+            ;
+        return;
+    }
     //1. Time button press
     //Start timer
     unsigned long currentTime = millis();
     unsigned long nextTime = currentTime + buttonPressPeriod;
     //Wait for the button to be release
     while (!digitalRead(buttonPin))
-        ;
-    //end timer
-    currentTime = millis();
-    if (currentTime > nextTime)
     {
-        //If the timer is less than X seconds then return else determine the state
+        //end timer
+        currentTime = millis();
+        if (currentTime > nextTime)
+        {
+            //If the timer is less than X seconds then return else determine the state
 
-        if (deviceState == DeviceStates::EMERGENCY)
-        {
-            deviceState = DeviceStates::UNSAFE_DISCONNECT;
-        }
-        else if (deviceState == DeviceStates::OPERATING)
-        {
-            deviceState = DeviceStates::SAFE_DISCONNECT;
+            if (deviceState == DeviceStates::EMERGENCY)
+            {
+                deviceState = DeviceStates::UNSAFE_DISCONNECT;
+            }
+            else if (deviceState == DeviceStates::OPERATING)
+            {
+                deviceState = DeviceStates::SAFE_DISCONNECT;
+            }
+            break;
         }
     }
 }
